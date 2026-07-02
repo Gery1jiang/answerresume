@@ -79,7 +79,8 @@ export default function AgentPage() {
   const [dagGoal, setDagGoal] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const finalTranscriptRef = useRef('');
   useEffect(() => {
     if (toolCalls.length === 0) setStatusMessage('');
   }, [toolCalls]);
@@ -611,12 +612,18 @@ export default function AgentPage() {
     recognition.lang = 'zh-CN';
     recognition.interimResults = true;
     recognition.continuous = true;
+    finalTranscriptRef.current = '';
     recognition.onresult = (e: SpeechRecognitionEvent) => {
-      let final = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        final += e.results[i][0].transcript;
+      let interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) {
+          finalTranscriptRef.current += result[0].transcript;
+        } else {
+          interim += result[0].transcript;
+        }
       }
-      setInput(prev => prev + final);
+      setInput(finalTranscriptRef.current + interim);
     };
     recognition.onerror = () => setListening(false);
     recognition.onend = () => setListening(false);

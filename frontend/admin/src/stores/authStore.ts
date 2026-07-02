@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { login as apiLogin, register as apiRegister } from '../api/auth';
 import type { LoginParams } from '../api/auth';
+import type { LoginResponse } from '../types/api';
 
 export interface AuthUser {
   access_token: string;
@@ -14,11 +15,11 @@ export interface AuthUser {
 interface AuthState {
   token: string | null;
   role: string | null;
-  userId: number | null;
+  userId: string | null;
   username: string | null;
   displayName: string | null;
-  login: (params: LoginParams) => Promise<AuthUser>;
-  register: (params: { username: string; display_name?: string; email: string; password: string }) => Promise<AuthUser>;
+  login: (params: LoginParams) => Promise<LoginResponse>;
+  register: (params: { username: string; display_name?: string; email: string; password: string }) => Promise<LoginResponse>;
   logout: () => void;
   isAuthenticated: () => boolean;
 }
