@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, Fragment } from 'react';
 import { Input, Button, Card, Typography, Space, Tag, Modal, Select, message, Spin, Upload } from 'antd';
-import { DeleteOutlined, FileTextOutlined, LoadingOutlined, UploadOutlined, PaperClipOutlined, FileImageOutlined, DownloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, FileTextOutlined, LoadingOutlined, UploadOutlined, PaperClipOutlined, FileImageOutlined, DownloadOutlined, AudioOutlined } from '@ant-design/icons';
 import { agentChat, agentChatStream, clearAgentHistory, agentUpload, getAgentHistory, getAgentTaskStatus, getAgentEvents, confirmTool, cancelTask } from '../../api/agent';
 import type { UploadResult, HistoryMessage, AgentEvent, FsmEvent } from '../../api/agent';
 import { getResume, getTemplates, getResumeViewUrl, getResumeDownloadUrl } from '../../api/resume';
@@ -78,6 +78,8 @@ export default function AgentPage() {
   const [dagSteps, setDagSteps] = useState<{ action_id: string; tool: string; status: string }[]>([]);
   const [dagGoal, setDagGoal] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   useEffect(() => {
     if (toolCalls.length === 0) setStatusMessage('');
   }, [toolCalls]);
@@ -597,6 +599,32 @@ export default function AgentPage() {
     abortRef.current = null;
   };
 
+  const toggleVoice = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { message.warning('当前浏览器不支持语音识别'); return; }
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const recognition = new SR();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      let final = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        final += e.results[i][0].transcript;
+      }
+      setInput(prev => prev + final);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    recognition.start();
+    recognitionRef.current = recognition;
+    setListening(true);
+  };
+
   const handleClear = async () => {
     abortRef.current?.abort();
     await clearAgentHistory();
@@ -776,7 +804,11 @@ export default function AgentPage() {
               </Upload>
               <Input value={input} onChange={(e) => setInput(e.target.value)} onPressEnter={handleSend}
                 placeholder={pendingFiles.length > 0 ? "输入对上传文件的指令（可选）..." : "输入你的指令（支持粘贴截图）..."}
-                size="large" variant="outlined" style={{ borderRadius: 20 }} disabled={loading} />
+                size="large" variant="outlined" style={{ borderRadius: 20 }} disabled={loading}
+                suffix={
+                  <AudioOutlined onClick={toggleVoice}
+                    style={{ fontSize: 18, cursor: 'pointer', color: listening ? '#ff4d4f' : 'var(--admin-text-muted)' }} />
+                } />
               {loading ? (
                 <Button danger onClick={handleCancel}
                   style={{ borderRadius: 20 }}>取消</Button>
