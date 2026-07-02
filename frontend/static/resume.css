@@ -1,0 +1,111 @@
+/* A4 纸标准尺寸：210mm x 297mm */
+.resume-card { 
+    width: 210mm;
+    min-height: 297mm;
+    background: white; 
+    padding: 5mm 10mm 10mm 10mm; 
+    font-family: 'Segoe UI', 'Roboto', 'Microsoft YaHei', '微软雅黑', sans-serif; 
+    line-height: 1.6; 
+    color: #1e2a3a; 
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
+    box-sizing: border-box;
+    overflow: hidden;
+}
+h1 { 
+    font-size: 28px; 
+    margin-bottom: 8px; 
+    color: #0f3b5c; 
+}
+h2 { 
+    font-size: 18px; 
+    border-left: 4px solid #2c7da0; 
+    padding-left: 10px; 
+    margin: 20px 0 12px 0; 
+    color: #0f3b5c; 
+}
+.contact { 
+    display: flex; 
+    gap: 20px; 
+    font-size: 14px; 
+    color: #2c3e50; 
+    margin-bottom: 12px; 
+    flex-wrap: wrap; 
+}
+.item-header { 
+    display: flex; 
+    justify-content: space-between; 
+    font-weight: 600; 
+    margin: 12px 0 6px 0; 
+    flex-wrap: wrap; 
+}
+.company, .school { 
+    color: #2c7da0; 
+}
+.date { 
+    color: #6c757d; 
+    font-weight: normal; 
+    font-size: 0.9em; 
+}
+ul { 
+    margin: 4px 0 8px 20px; 
+    padding-left: 0; 
+}
+li { 
+    margin-bottom: 6px; 
+    text-align: justify; 
+}
+.skills-list { 
+    display: flex; 
+    flex-wrap: wrap; 
+    gap: 8px; 
+    margin-top: 8px; 
+}
+.skill-tag { 
+    background: #e9ecef; 
+    padding: 4px 12px; 
+    border-radius: 20px; 
+    font-size: 13px; 
+}
+.tech { 
+    font-size: 13px; 
+    color: #495057; 
+    margin-top: 4px; 
+}
+.summary {
+    text-align: justify;
+    font-size: 14px;
+    color: #495057;
+}
+@media print {
+    body { 
+        margin: 0; 
+        padding: 0; 
+        background: white; 
+    }
+    .toolbar, button { 
+        display: none; 
+    }
+    .resume-card { 
+        box-shadow: none; 
+        margin: 0; 
+        padding: 5mm 10mm 10mm 10mm;
+        width: 210mm;
+        min-height: 297mm;
+        page-break-after: always;
+        page-break-inside: avoid;
+    }
+    h1, h2, h3 {
+        page-break-after: avoid;
+    }
+    li, .item-header {
+        page-break-inside: avoid;
+    }
+    * { 
+        -webkit-print-color-adjust: exact; 
+        print-color-adjust: exact; 
+    }
+    @page {
+        size: A4;
+        margin: 0;
+    }
+}

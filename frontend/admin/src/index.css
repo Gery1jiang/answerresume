@@ -1,0 +1,383 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import 'antd/dist/reset.css';
+
+/* ============================================================
+   Light Theme
+   ============================================================ */
+[data-theme="light"] {
+  --admin-bg: #f5f7fa;
+  --admin-bg-secondary: #ffffff;
+  --admin-bg-tertiary: #eef1f6;
+  --admin-bg-card: #ffffff;
+  --admin-accent: #6366f1;
+  --admin-accent-hover: #818cf8;
+  --admin-accent-light: rgba(99, 102, 241, 0.08);
+  --admin-text: #1e293b;
+  --admin-text-secondary: #64748b;
+  --admin-text-muted: #94a3b8;
+  --admin-border: #e2e8f0;
+  --admin-success: #10b981;
+  --admin-error: #ef4444;
+  --admin-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --admin-card-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  --admin-bg-gradient-1: #f5f7fa;
+  --admin-bg-gradient-2: #e8ecf2;
+  --admin-noise-accent: rgba(99, 102, 241, 0.04);
+  --admin-chat-user-bg: #6366f1;
+  --admin-chat-assistant-bg: #ffffff;
+  --admin-input-bg: #ffffff;
+  --admin-sidebar-bg: #ffffff;
+  --admin-sidebar-text: #64748b;
+  --admin-sidebar-selected-text: #6366f1;
+  --admin-sidebar-selected-bg: rgba(99, 102, 241, 0.08);
+}
+
+/* ============================================================
+   Dark Theme
+   ============================================================ */
+[data-theme="dark"] {
+  --admin-bg: #060a18;
+  --admin-bg-secondary: #0c1222;
+  --admin-bg-tertiary: #111827;
+  --admin-bg-card: #0f1626;
+  --admin-accent: #6366f1;
+  --admin-accent-hover: #818cf8;
+  --admin-accent-light: rgba(99, 102, 241, 0.15);
+  --admin-text: #e2e8f0;
+  --admin-text-secondary: #94a3b8;
+  --admin-text-muted: #64748b;
+  --admin-border: #1e293b;
+  --admin-success: #10b981;
+  --admin-error: #ef4444;
+  --admin-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  --admin-card-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  --admin-bg-gradient-1: #0f1626;
+  --admin-bg-gradient-2: #060a18;
+  --admin-noise-accent: rgba(99, 102, 241, 0.03);
+  --admin-chat-user-bg: #6366f1;
+  --admin-chat-assistant-bg: #0f1626;
+  --admin-input-bg: #111827;
+  --admin-sidebar-bg: #0c1222;
+  --admin-sidebar-text: #94a3b8;
+  --admin-sidebar-selected-text: #818cf8;
+  --admin-sidebar-selected-bg: rgba(99, 102, 241, 0.15);
+}
+
+/* ============================================================
+   Default Fallback (System Preference)
+   ============================================================ */
+@media (prefers-color-scheme: light) {
+  :root {
+    --admin-bg: #f5f7fa;
+    --admin-bg-secondary: #ffffff;
+    --admin-bg-tertiary: #eef1f6;
+    --admin-bg-card: #ffffff;
+    --admin-accent: #6366f1;
+    --admin-accent-hover: #818cf8;
+    --admin-accent-light: rgba(99, 102, 241, 0.08);
+    --admin-text: #1e293b;
+    --admin-text-secondary: #64748b;
+    --admin-text-muted: #94a3b8;
+    --admin-border: #e2e8f0;
+    --admin-success: #10b981;
+    --admin-error: #ef4444;
+    --admin-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    --admin-card-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    --admin-bg-gradient-1: #f5f7fa;
+    --admin-bg-gradient-2: #e8ecf2;
+    --admin-noise-accent: rgba(99, 102, 241, 0.04);
+    --admin-chat-user-bg: #6366f1;
+    --admin-chat-assistant-bg: #ffffff;
+    --admin-input-bg: #ffffff;
+    --admin-sidebar-bg: #ffffff;
+    --admin-sidebar-text: #64748b;
+    --admin-sidebar-selected-text: #6366f1;
+    --admin-sidebar-selected-bg: rgba(99, 102, 241, 0.08);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --admin-bg: #060a18;
+    --admin-bg-secondary: #0c1222;
+    --admin-bg-tertiary: #111827;
+    --admin-bg-card: #0f1626;
+    --admin-accent: #6366f1;
+    --admin-accent-hover: #818cf8;
+    --admin-accent-light: rgba(99, 102, 241, 0.15);
+    --admin-text: #e2e8f0;
+    --admin-text-secondary: #94a3b8;
+    --admin-text-muted: #64748b;
+    --admin-border: #1e293b;
+    --admin-success: #10b981;
+    --admin-error: #ef4444;
+    --admin-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    --admin-card-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    --admin-bg-gradient-1: #0f1626;
+    --admin-bg-gradient-2: #060a18;
+    --admin-noise-accent: rgba(99, 102, 241, 0.03);
+    --admin-chat-user-bg: #6366f1;
+    --admin-chat-assistant-bg: #0f1626;
+    --admin-input-bg: #111827;
+    --admin-sidebar-bg: #0c1222;
+    --admin-sidebar-text: #94a3b8;
+    --admin-sidebar-selected-text: #818cf8;
+    --admin-sidebar-selected-bg: rgba(99, 102, 241, 0.15);
+  }
+}
+
+/* ============================================================
+   Global Defaults
+   ============================================================ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: radial-gradient(ellipse at 50% 0%, var(--admin-bg-gradient-1) 0%, var(--admin-bg-gradient-2) 100%);
+  background-attachment: fixed;
+  color: var(--admin-text);
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.35s ease, color 0.25s ease;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    radial-gradient(circle at 20% 80%, var(--admin-noise-accent) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, var(--admin-noise-accent) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
+::-webkit-scrollbar { width: 8px; height: 8px; transition: background 0.3s ease; }
+::-webkit-scrollbar-track { background: var(--admin-bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--admin-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--admin-text-muted); }
+
+/* ============================================================
+   Keyframe Animations
+   ============================================================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.page-enter {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+/* ============================================================
+   Component Overrides
+   ============================================================ */
+
+/* Sider trigger (collapse/expand button at bottom) */
+.ant-layout-sider-trigger {
+  background: var(--admin-sidebar-bg) !important;
+  color: var(--admin-sidebar-text) !important;
+  border-top: 1px solid var(--admin-border) !important;
+  transition: background 0.35s ease, color 0.3s ease !important;
+}
+.ant-layout-sider-trigger:hover {
+  background: var(--admin-bg-tertiary) !important;
+}
+
+/* Sider internal elements */
+.ant-layout-sider-children {
+  background: var(--admin-sidebar-bg) !important;
+}
+
+/* Logo area inside sider */
+.ant-layout-sider .logo-area {
+  border-bottom: 1px solid var(--admin-border) !important;
+  transition: border-color 0.3s ease;
+}
+
+/* Ensure all ant layouts use CSS variables for backgrounds */
+.ant-layout,
+.ant-layout-sider {
+  transition: background 0.35s ease !important;
+}
+
+/* Card hover */
+.ant-card-hoverable:hover {
+  box-shadow: var(--admin-card-shadow) !important;
+  transition: box-shadow 0.3s ease;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+}
+
+/* Input focus */
+input:focus, textarea:focus, select:focus,
+.ant-input-affix-wrapper:focus-within {
+  border-color: var(--admin-accent) !important;
+  box-shadow: 0 0 0 2px var(--admin-accent-light) !important;
+}
+
+/* Input/TextArea/Password/Number background */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-outlined {
+  background: var(--admin-input-bg) !important;
+  transition: background 0.3s ease, border-color 0.3s ease !important;
+}
+
+/* InputNumber */
+.ant-input-number,
+.ant-input-number-outlined {
+  background: var(--admin-input-bg) !important;
+}
+.ant-input-number-input {
+  background: transparent !important;
+}
+
+/* Input affix wrapper inner input */
+.ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+}
+
+/* Select */
+.ant-select-selector {
+  background: var(--admin-input-bg) !important;
+  transition: background 0.3s ease !important;
+}
+
+/* Select dropdown */
+.ant-select-dropdown {
+  background: var(--admin-bg-card) !important;
+}
+
+/* TextArea (antd v6 uses textarea directly) */
+textarea.ant-input {
+  background: var(--admin-input-bg) !important;
+}
+
+/* Upload drag area */
+.ant-upload-drag,
+.ant-upload-select {
+  background: var(--admin-input-bg) !important;
+}
+
+/* Switch */
+.ant-switch {
+  background: var(--admin-border) !important;
+}
+
+/* Radio button group */
+.ant-radio-button-wrapper {
+  background: var(--admin-bg-card) !important;
+  color: var(--admin-text-secondary) !important;
+  border-color: var(--admin-border) !important;
+}
+.ant-radio-button-wrapper-checked {
+  background: var(--admin-accent) !important;
+  border-color: var(--admin-accent) !important;
+  color: #fff !important;
+}
+.ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
+  color: var(--admin-accent) !important;
+}
+
+/* List items */
+.ant-list-item {
+  border-block-end-color: var(--admin-border) !important;
+}
+
+/* Statistic */
+.ant-statistic-title {
+  color: var(--admin-text-secondary) !important;
+}
+.ant-statistic-content {
+  color: var(--admin-text) !important;
+}
+
+/* Form labels */
+.ant-form-item-label label {
+  color: var(--admin-text-secondary) !important;
+}
+
+/* Disabled input */
+.ant-input-disabled,
+.ant-input[disabled] {
+  background: var(--admin-bg-tertiary) !important;
+  color: var(--admin-text-muted) !important;
+}
+
+/* Loading dots (matching visitor style) */
+.loading-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.loading-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--admin-accent);
+  border-radius: 50%;
+  animation: loadingPulse 1.2s ease-in-out infinite;
+}
+.loading-dot:nth-child(1) { animation-delay: 0s; }
+.loading-dot:nth-child(2) { animation-delay: 0.15s; }
+.loading-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes loadingPulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Chat scroll area */
+.chat-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: var(--admin-border);
+  border-radius: 3px;
+}
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--admin-text-muted);
+}
+
+/* Chat Message Animations */
+.message-user {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.message-assistant {
+  animation: slideInLeft 0.3s ease-out;
+}
