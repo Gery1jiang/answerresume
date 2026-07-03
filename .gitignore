@@ -1,0 +1,43 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Generated PDFs
+*.pdf
+
+# Logs
+*.log
+error.log
+output.log
+
+# IDE
+.trae/
+.agents/
+.vscode/
+.idea/
+
+# Docker
+hr-agent/backend/data/*.db
+!hr-agent/backend/data/.gitkeep
+
+# Model cache (symlinks cause git issues)
+hf_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+gpwt.md
+备份/
+backups/
+hr-agent/hf_cache/
+hr-agent/backend/user_data/
+hr-agent/frontend/admin/dist/
+hr-agent/frontend/admin/dist2/

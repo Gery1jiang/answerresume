@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir flask httpx python-dotenv gunicorn
+
+COPY visitor_app.py .
+COPY static/ ./static/
+COPY resume_render.py .
+
+EXPOSE 51667
+
+CMD ["gunicorn", "--bind", "0.0.0.0:51667", "--workers", "2", "--threads", "4", "visitor_app:app"]

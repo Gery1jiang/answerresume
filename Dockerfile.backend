@@ -1,0 +1,28 @@
+FROM python:3.10-slim
+
+# Chromium for pyppeteer HTML→PDF
+RUN apt-get update && apt-get install -y \
+    wget gnupg unzip chromium \
+    libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxi6 libxtst6 \
+    libnss3 libcups2 libxss1 libxrandr2 libasound2 libatk-bridge2.0-0 libgtk-3-0 \
+    libdrm2 libgbm1 fonts-noto-cjk --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Layer 1: dependency files (stable cache layer — only rebuild when versions change)
+COPY hr-agent/backend/requirements.txt ./hr-agent/backend/
+RUN pip install --no-cache-dir -r hr-agent/backend/requirements.txt
+
+# Use HF mirror for model downloads (blocked from mainland China)
+ENV HF_ENDPOINT=https://hf-mirror.com
+
+# Layer 2: backend application code
+COPY hr-agent/backend/ ./hr-agent/backend/
+
+# Layer 3: shared data assets (change less frequently than code)
+COPY hr-agent/knowledge/ ./hr-agent/knowledge/
+COPY hr-agent/frontend/ ./hr-agent/frontend/
+
+ENV PYPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+EXPOSE 51666

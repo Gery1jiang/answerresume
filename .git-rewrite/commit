@@ -1,0 +1,6 @@
+tree 5d27688b277a2739524797004e4d55452bf9d0c2
+parent 41e9c350013b93e66a0dcc7bfc89247cbb65455a
+author Gery1jiang <geryjiang95@gmail.com> 1780037106 +0800
+committer Gery1jiang <geryjiang95@gmail.com> 1780037106 +0800
+
+feat: 系统配置页嵌入提示词管理Tab，替换旧的TextArea

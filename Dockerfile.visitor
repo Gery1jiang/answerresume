@@ -1,0 +1,10 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Minimal runtime — no chromium, no langchain
+RUN pip install --no-cache-dir flask==3.1.1 httpx==0.28.1 python-dotenv==1.1.0 waitress==3.0.0
+
+COPY hr-agent/frontend/visitor_app.py ./hr-agent/frontend/
+
+EXPOSE 51670

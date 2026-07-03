@@ -1,0 +1,14 @@
+**/node_modules/
+**/node_modules/**
+npm-debug.log
+.DS_Store
+.git/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+.env
+test-results/
+build/

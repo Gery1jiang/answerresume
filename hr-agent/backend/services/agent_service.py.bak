@@ -1,0 +1,663 @@
+import json
+import os
+import time
+from datetime import datetime, timedelta
+from typing import TypedDict, Sequence, Annotated, List
+import concurrent.futures
+
+from langchain_core.tools import tool
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+
+from config import settings
+from services.resume_service import resume_service
+from services.rag_service import rag_service
+from services.database import SessionLocal
+from services.usage_service import usage_service
+
+
+# ============================================================
+# LLM
+# ============================================================
+
+@tool
+def search_jobs_and_match(keywords: str = "", city: str = "") -> str:
+    """
+    搜索招聘岗位并匹配经历。管理员可以搜索指定关键词和城市的岗位。
+    系统会自动匹配你的知识库经历并给出匹配度评分。
+    - keywords: 搜索关键词，如"Python后端开发"、"AI产品经理"
+    - city: 城市，如"北京"、"上海"，可选
+    
+    返回按匹配度排序的岗位列表，包含匹配详情。
+    """
+    try:
+        from services.database import SessionLocal
+        from services.models import CrawledJob
+        from services.jd_matcher import match_jd
+        db = SessionLocal()
+        try:
+            # For now, search existing crawled jobs. When browser-use is ready, trigger crawl.
+            query = db.query(CrawledJob)
+            if keywords:
+                query = query.filter(
+                    CrawledJob.title.contains(keywords) |
+                    CrawledJob.company.contains(keywords) |
+                    CrawledJob.jd_text.contains(keywords.split()[0]) if keywords.split() else True
+                )
+            if city:
+                query = query.filter(CrawledJob.city.contains(city))
+            jobs = query.order_by(CrawledJob.created_at.desc()).limit(20).all()
+
+            if not jobs:
+                # Try triggering a crawl (fast timeout, crawler may be unavailable)
+                try:
+                    import httpx as hp
+                    crawl_resp = hp.post(
+                        "http://job-crawler:8000/crawl",
+                        json={"keywords": keywords, "city": city, "pages": 1},
+                        timeout=5,
+                    )
+                    if crawl_resp.status_code == 200:
+                        crawl_result = crawl_resp.json()
+                        if crawl_result.get("success"):
+                            crawled = crawl_result.get("jobs", [])
+                            for j in crawled:
+                                job = CrawledJob(
+                                    platform=j.get("platform", "boss"),
+                                    title=j.get("title", ""),
+                                    company=j.get("company", ""),
+                                    city=j.get("city", ""),
+                                    salary=j.get("salary", ""),
+                                    jd_text=j.get("jd_text", ""),
+                                    jd_url=j.get("jd_url", ""),
+                                    status="new",
+                                )
+                                db.add(job)
+                            db.commit()
+                            jobs = db.query(CrawledJob).filter(
+                                CrawledJob.title.contains(keywords.split()[0]) if keywords.split() else True
+                            ).limit(20).all()
+                except Exception:
+                    pass
+
+            if not jobs:
+                return _err(f"未找到「{keywords}」相关岗位。可以在「岗位雷达」页面手动添加JD或检查 job-crawler 服务。")
+
+            lines = [f"找到 {len(jobs)} 个相关岗位：\n"]
+            total_len = 0
+            for j in jobs:
+                # Match if not yet matched
+                score = j.match_score
+                detail = None
+                if not score and j.jd_text:
+                    try:
+                        result = match_jd(j.jd_text)
+                        score = result["score"]
+                        j.match_score = score
+                        j.match_detail = __import__('json').dumps(result, ensure_ascii=False)
+                        j.status = "matched"
+                        detail = result
+                    except Exception:
+                        import traceback
+                        print(f"[agent_service] match_job failed: {traceback.format_exc()}")
+                        pass
+
+                score_str = f"{score}%" if score else "未匹配"
+                lines.append(f"{j.title} @ {j.company} ({j.city}) - 匹配度: {score_str}")
+                if detail and detail.get("matched_items"):
+                    top = detail["matched_items"][:3]
+                    for m in top:
+                        lines.append(f"  ✅ {m['content'][:60]}")
+                if detail and detail.get("missing_items"):
+                    for m in detail["missing_items"][:2]:
+                        lines.append(f"  ❌ {m['reason']}")
+                lines.append("")
+
+            db.commit()
+            lines.append("详细列表可在「岗位雷达」页面查看。")
+            result_text = "\n".join(lines)
+            if len(result_text) > 3000:
+                result_text = result_text[:3000] + "\n...（内容较长，已截断）"
+            return _ok(result_text)
+        finally:
+            db.close()
+    except Exception as e:
+        return _err(f"搜索岗位失败：{str(e)}")
+
+
+@tool
+def generate_interview_report_tool(company: str = "", job_title: str = "") -> str:
+    """
+    生成面试报告/面试宝典。管理员说"生成XXX公司的面试报告"时调用。
+    - company: 公司名称，必填
+    - job_title: 岗位名称（可选）
+    系统会自动查找该公司的面试记录并生成报告PDF。
+    """
+    if not company:
+        return _err("请提供公司名称")
+    try:
+        from services.database import SessionLocal
+        from services.models import InterviewGuide
+        from services.report_generator import generate_full_report
+        import asyncio
+
+        db = SessionLocal()
+        try:
+            query = db.query(InterviewGuide).filter(
+                InterviewGuide.company_name.ilike(f"%{company}%")
+            )
+            if job_title:
+                query = query.filter(InterviewGuide.job_title.ilike(f"%{job_title}%"))
+            guide = query.order_by(InterviewGuide.created_at.desc()).first()
+            if not guide:
+                return _err(f"未找到「{company}」的面试记录，请先在「面试宝典」页面新增邀约安排")
+            asyncio.create_task(generate_full_report(guide.id))
+            return _ok(
+                f"✅ 已开始为「{guide.company_name} - {guide.job_title}」生成面试报告，"
+                f"请在面试宝典页面查看进度。\n"
+                f"面试时间：{guide.interview_time.isoformat() if guide.interview_time else '未设置'}\n"
+                f"面试地址：{guide.interview_address or '未设置'}"
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        return _err(f"生成面试报告失败：{str(e)}")
+
+
+def _clean_ocr_text(text: str) -> str:
+    """Clean OCR output: remove docling parser artifacts, page UI elements, recruiter noise."""
+    import re
+    # Docling parser artifacts
+    text = re.sub(r'<!--\s*image\s*-->', '', text)
+    text = re.sub(r'\[Pas[a-z]*', '', text)
+    # Recruitment platform UI elements
+    text = re.sub(r'展开[▼▽]', '', text)
+    text = re.sub(r'微信扫码分享', '', text)
+    text = re.sub(r'[△▲]举报', '', text)
+    text = re.sub(r'完善(在线)?简历|新增附件简历|昌\s+完善|在线简历', '', text)
+    text = re.sub(r'继续沟通|感兴趣', '', text)
+    # Single stray V on its own line (recruiter avatar initial)
+    text = re.sub(r'^\s*V\s*$', '', text, flags=re.MULTILINE)
+    # Recruiter name + status: "楼青莉\n\n今日活跃" (handles 1+ blank lines between)
+    text = re.sub(r'^[\u4e00-\u9fff]{2,6}\n+\s*今日活跃', '', text, flags=re.MULTILINE)
+    # Recruiter tag list (lines of short tags after recruiter section)
+    text = re.sub(r'\n(?:不限|G端产品|ERP产品|AI产品|物联网产品|五险一金|年终奖|全勤奖|零食下午茶)', '', text)
+    # Multi-level list number artifacts ("2. 2." -> "2.")
+    text = re.sub(r'^(\d+)\.\s+\1\.', r'\1.', text, flags=re.MULTILINE)
+    text = re.sub(r'^<!--.*-->$', '', text, flags=re.MULTILINE)
+    # Normalize excessive blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+@tool
+def ocr_image_tool(image_url: str = "") -> str:
+    """
+    识别图片中的文字内容（OCR）。当管理员上传图片并询问图片中的文字信息时使用。
+    使用 Docling（IBM 开源文档解析库）进行 OCR 识别，支持 PNG/JPG/PDF 等格式。
+    - image_url: 图片的本地文件路径或URL
+    返回识别出的文字内容。
+    """
+    if not image_url:
+        return _err("请提供图片路径或URL")
+    try:
+        from services.document_parser import parse_document
+
+        if image_url.startswith("/") or image_url.startswith("."):
+            if not os.path.exists(image_url):
+                return _err(f"图片文件不存在: {image_url}")
+            text = parse_document(image_url)
+        else:
+            try:
+                resp = httpx.get(image_url, timeout=30, follow_redirects=True)
+                resp.raise_for_status()
+                import tempfile
+                suffix = os.path.splitext(image_url.split("?")[0])[1] or ".png"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    tmp.write(resp.content)
+                    tmp_path = tmp.name
+                text = parse_document(tmp_path)
+                os.unlink(tmp_path)
+            except Exception as e:
+                return _err(f"下载图片失败: {str(e)}")
+
+        if text:
+            clean = _clean_ocr_text(text)
+            if clean:
+                return _ok(clean)
+        return _err("OCR识别失败")
+    except Exception as e:
+        return _err(f"OCR识别失败: {str(e)}")
+
+
+@tool
+def create_interview_record_tool(
+    company_name: str = "",
+    job_title: str = "",
+    interview_time: str = "",
+    interview_address: str = "",
+    address_type: str = "offline",
+    video_link: str = "",
+    interview_round: str = "",
+    hr_name: str = "",
+    hr_phone: str = "",
+    salary: str = "",
+    company_description: str = "",
+    jd_text: str = "",
+) -> str:
+    """
+    创建面试记录（面试宝典）。当管理员要求新增一条面试记录时使用。
+    - company_name: 公司名称（必填）
+    - job_title: 岗位名称（必填）
+    - interview_time: 面试时间，格式如 "2025-06-15 14:00"
+    - interview_address: 面试地址
+    - address_type: 地址类型，online 或 offline，默认 offline
+    - video_link: 视频面试链接（address_type=online时使用）
+    - interview_round: 面试阶段，如 一面/二面/技术面/HR面
+    - hr_name: 联系人姓名
+    - hr_phone: 联系人电话
+    - salary: 薪资范围，如 "11-15K" 或 "20K-30K"（从OCR识别结果或管理员提供的信息中提取）
+    - company_description: 公司简介/公司信息描述（从OCR识别结果或管理员提供的信息中提取）
+    - jd_text: 岗位描述文本
+    返回创建成功的面试记录信息。
+    """
+    if not company_name or not job_title:
+        return _err("公司名称和岗位名称不能为空")
+    try:
+        from services.database import SessionLocal
+        from services.interview_guide_service import interview_guide_service
+        data = {
+            "company_name": company_name,
+            "job_title": job_title,
+            "interview_time": interview_time or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"),
+            "interview_address": interview_address,
+            "address_type": address_type,
+            "video_link": video_link,
+            "interview_round": interview_round,
+            "hr_name": hr_name,
+            "hr_phone": hr_phone,
+            "salary": salary,
+            "company_description": company_description,
+            "jd_text": jd_text,
+            "source": "agent",
+        }
+        db = SessionLocal()
+        try:
+            result = interview_guide_service.create(db, data)
+            salary_info = f"，薪资 {salary}" if salary else ""
+            desc_info = f"，已录入公司简介" if company_description else ""
+            return _ok(json.dumps({
+                "id": result["id"],
+                "company_name": result["company_name"],
+                "job_title": result["job_title"],
+                "salary": result.get("salary", ""),
+                "interview_round": result.get("interview_round", ""),
+                "address_type": result.get("address_type", "offline"),
+                "message": f"已为【{company_name}】创建{job_title}面试记录{salary_info}{desc_info}",
+            }, ensure_ascii=False))
+        finally:
+            db.close()
+    except Exception as e:
+        return _err(f"创建面试记录失败: {str(e)}")
+
+
+all_tools = tools + [knowledge_preview, knowledge_confirm, knowledge_rebuild_vector, search_jobs_and_match, generate_interview_report_tool, ocr_image_tool, create_interview_record_tool]
+
+
+def _get_admin_llm() -> ChatOpenAI:
+    from config import get_provider_base_url
+    return ChatOpenAI(
+        api_key=settings.ADMIN_API_KEY,
+        base_url=get_provider_base_url(settings.ADMIN_LLM_PROVIDER),
+        model=settings.ADMIN_LLM_MODEL,
+        temperature=0.3,
+        timeout=120,
+        max_retries=2,
+    )
+
+
+_llm_instance = None
+_llm_with_tools = None
+
+
+def get_llm_with_tools():
+    global _llm_instance, _llm_with_tools
+    if _llm_with_tools is None:
+        _llm_instance = _get_admin_llm()
+        _llm_with_tools = _llm_instance.bind_tools(all_tools)
+    return _llm_with_tools
+
+
+llm = _llm_instance
+
+
+DEFAULT_AGENT_PROMPT = """你是AS Agent管理助手，当前对话的管理员拥有全部操作权限。
+
+可用工具：
+1. 生成简历 - 根据用户提供的信息或知识库内容生成简历PDF
+2. 查询会话统计 - 查询访客会话统计数据
+3. 在线搜索 - 搜索实时信息
+4. 知识库管理 - 修改、替换知识库内容（通过自然语言交互）
+5. 岗位搜索匹配 - 根据关键词搜索招聘岗位，自动匹配你的知识库经历并打分
+6. 生成面试报告 - 根据公司名称（可选岗位）生成面试宝典报告PDF
+7. OCR图片识别 - 识别上传图片中的文字内容，支持本地文件路径和URL
+8. 创建面试记录 - 根据OCR识别结果或管理员提供的信息创建面试宝典记录，支持录入薪资(salary)和公司简介(company_description)
+    - 单字段修改：改姓名/手机/邮箱等
+    - 整段经历替换：替换工作/项目经历
+    - 全局换人：完全替换所有知识库内容
+    - 重建向量库：刷新知识库索引
+
+【OCR + 创建面试记录流程】当管理员上传一张或多张图片并要求创建面试记录时：
+Step 1: 对每张图片分别调用 OCR图片识别（ocr_image_tool）获取文字内容
+Step 2: 合并所有OCR结果，从中提取以下字段：
+  - company_name: 公司名称
+  - job_title: 岗位名称
+  - salary: 薪资范围（如 "11-15K"），从JD图片中提取
+  - company_description: 公司简介全文——从OCR结果中的"公司简介"段落提取完整文字，不要截断
+  - jd_text: 岗位描述全文——将OCR结果中"职位描述"、"岗位职责"、"任职要求"等JD相关内容完整填入，不要只填摘要
+  - interview_time: 面试时间
+  - interview_address: 面试地址
+  - interview_round: 面试阶段（一面/二面/技术面/HR面）
+  - hr_name: 联系人姓名
+  - hr_phone: 联系人电话
+Step 3: 调用 创建面试记录（create_interview_record_tool），将上面提取到的所有字段传入，不要遗漏
+重要：jd_text和company_description要填入OCR识别的完整原文，不要截断或自己概括
+
+【强制规则】在线搜索（工具3）始终可用，不得拒绝使用。当用户询问公司信息、人物背景、实时资讯、行业动态时，你必须优先调用 web_search_tool 搜索真实信息，不得替代搜索或声称搜索不可用。如果搜索工具返回错误，你仍然需要如实将错误信息告知用户，而不是自行编造「搜索功能不可用」的解释。切记：你手上就有搜索工具，随时可以调用。
+
+【强制规则-生成简历】当用户要求生成简历时，必须调用 generate_resume_tool 工具来实际生成，不得根据对话历史中的已有结果直接回复或自己编造结果。即使用户在同一个会话中重复发送相同的指令，或者之前已经生成过，也必须重新调用工具生成一份新的简历。
+- 个人信息始终从知识库获取，不需要询问用户"用知识库还是自己提供信息"
+- 目标岗位（target_job）为必填，如果用户没说具体岗位，必须追问
+- 如果用户提供了JD文本，填入jd参数；如果用户发送JD图片，先调用ocr_image_tool识别文字，再将识别结果填入jd参数
+- 如果用户没有提供JD，jd参数留空即可，会根据岗位和个人经历生成通用简历
+
+【重要】所有工具返回的都是 JSON 字符串，格式为：
+- 成功：{"ok": true, "data": "..."}
+- 失败：{"ok": false, "error": "..."}
+你需要解析 JSON 后，将 data 内容或 error 信息用自然语言告知管理员。
+
+管理员提出修改知识库（改名、换经历、换人等）时，直接执行以下流程，不需要询问权限：
+Step 1: 调用 knowledge_preview 传入用户的原文
+Step 2: 展示预览结果给用户确认
+Step 3: 用户确认后调用 knowledge_confirm 执行"""
+
+
+# ============================================================
+# LangGraph Agent
+# ============================================================
+
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+
+def call_model(state: AgentState):
+    messages = state["messages"]
+    # Prepend system prompt if the first message is not a system message
+    # Read dynamically from settings so prompt changes take effect immediately
+    if not messages or messages[0].type != "system":
+        from langchain_core.messages import SystemMessage
+        prompt = getattr(settings, "AGENT_PROMPT", "") or DEFAULT_AGENT_PROMPT
+        messages = [SystemMessage(content=prompt)] + messages
+    response = get_llm_with_tools().invoke(messages, timeout=120)
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
+        usage_service.record(
+            user_id="agent",
+            event_type="agent_llm",
+            model=getattr(settings, "ADMIN_LLM_MODEL", ""),
+            input_tokens=response.usage_metadata.get("input_tokens", 0),
+            output_tokens=response.usage_metadata.get("output_tokens", 0),
+        )
+    return {"messages": [response]}
+
+
+# Build graph
+workflow = StateGraph(AgentState)
+workflow.add_node("agent", call_model)
+workflow.add_node("tools", ToolNode(all_tools))
+workflow.set_entry_point("agent")
+workflow.add_conditional_edges("agent", tools_condition)
+workflow.add_edge("tools", "agent")
+
+# Enable LangGraph-native checkpointing (persists conversation state)
+from langgraph.checkpoint.memory import MemorySaver
+agent_executor = workflow.compile(checkpointer=MemorySaver())
+
+# Sensitive tools that require explicit user confirmation
+SENSITIVE_TOOLS = {"knowledge_confirm", "generate_resume_tool", "generate_interview_report_tool"}
+
+
+# ============================================================
+# Memory Management
+# ============================================================
+
+def load_history(session_id: str, max_turns: int = 10) -> List[BaseMessage]:
+    """从数据库加载Agent对话历史"""
+    db = SessionLocal()
+    try:
+        records = db.query(AgentConversation).filter(
+            AgentConversation.session_id == session_id
+        ).order_by(AgentConversation.created_at.asc()).limit(max_turns * 2).all()
+        messages: List[BaseMessage] = []
+        for r in records:
+            content = r.content
+            if content and len(content) > 4000:
+                content = content[:4000] + "\n...（截断）"
+            if r.role == "user":
+                messages.append(HumanMessage(content=content))
+            elif r.role == "assistant":
+                messages.append(AIMessage(content=content))
+        return messages
+    finally:
+        db.close()
+
+
+def save_message(session_id: str, role: str, content: str):
+    """保存单条消息到数据库"""
+    db = SessionLocal()
+    try:
+        record = AgentConversation(
+            session_id=session_id,
+            role=role,
+            content=content
+        )
+        db.add(record)
+        db.commit()
+    finally:
+        db.close()
+
+
+def clear_history(session_id: str):
+    """清空指定session的Agent对话历史"""
+    db = SessionLocal()
+    try:
+        db.query(AgentConversation).filter(
+            AgentConversation.session_id == session_id
+        ).delete()
+        db.commit()
+    finally:
+        db.close()
+
+
+def clear_all_history():
+    """清空所有Agent对话历史"""
+    db = SessionLocal()
+    try:
+        db.query(AgentConversation).delete()
+        db.commit()
+    finally:
+        db.close()
+
+
+# ============================================================
+# Agent Runner
+# ============================================================
+
+def run_agent(session_id: str, user_message: str) -> dict:
+    """
+    运行Agent：加载历史 → 添加用户消息 → 执行Agent → 保存回复
+    返回: {"response": str, "steps": list}
+    steps 中包含工具调用链信息，用于前端展示思维过程
+    """
+    is_safe, reason = check_message(user_message)
+    if not is_safe:
+        print(f"[agent_service] injection blocked for session {session_id}: {reason}")
+        save_message(session_id, "user", user_message)
+        save_message(session_id, "assistant", reason)
+        return {"response": reason, "steps": []}
+
+    history = load_history(session_id, max_turns=10)
+
+    # 添加用户消息
+    history.append(HumanMessage(content=user_message))
+    save_message(session_id, "user", user_message)
+
+    # 执行Agent（带超时保护）
+    with Timer("agent.run_agent") as timer:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                agent_executor.invoke,
+                {"messages": history},
+                {"configurable": {"thread_id": session_id}, "recursion_limit": 15},
+            )
+            try:
+                result = future.result(timeout=300)
+                elapsed = timer.elapsed
+                print(f"[metrics] agent.run_agent session={session_id} duration={elapsed:.2f}s")
+            except concurrent.futures.TimeoutError:
+                print(f"[agent_service] run_agent timeout for session {session_id}")
+                save_message(session_id, "assistant", "请求超时，请稍后重试")
+                return {"response": "请求超时，请稍后重试", "steps": []}
+            except Exception as e:
+                print(f"[agent_service] run_agent error for session {session_id}: {type(e).__name__}: {e}")
+                save_message(session_id, "assistant", f"处理失败：{type(e).__name__}")
+                return {"response": f"处理失败：{type(e).__name__}", "steps": []}
+
+    from langchain_core.messages import AIMessage as _AIMessage
+
+    # 提取工具调用链（用于前端展示）
+    steps: List[dict] = []
+    for msg in result["messages"]:
+        if isinstance(msg, _AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                step = {
+                    "type": "tool_call",
+                    "tool": tc["name"],
+                    "args": tc.get("args", {}),
+                }
+                if tc["name"] in SENSITIVE_TOOLS:
+                    step["sensitive"] = True
+                    step["requires_confirmation"] = True
+                steps.append(step)
+        elif hasattr(msg, "type") and msg.type == "tool":
+            steps.append({
+                "type": "tool_result",
+                "tool": getattr(msg, "name", ""),
+                "result_preview": (msg.content[:300] + "...") if msg.content and len(msg.content) > 300 else (msg.content or ""),
+            })
+
+    # 提取最终回复：从后往前找第一条纯文本 AI 消息（跳过 tool call 消息）
+    reply = "处理完成"
+    for msg in reversed(result["messages"]):
+        if isinstance(msg, _AIMessage):
+            tc = getattr(msg, "tool_calls", None) or []
+            content = (msg.content or "").strip()
+            if content and not tc:
+                reply = content
+                break
+
+    # 保存助手消息
+    save_message(session_id, "assistant", reply)
+
+    return {
+        "response": reply,
+        "steps": steps,
+    }
+
+
+# ============================================================
+# SSE Streaming Agent
+# ============================================================
+
+
+def stream_agent_events(session_id: str, user_message: str):
+    """Run agent and yield SSE events as execution progresses.
+
+    Yields dicts with keys:
+      - type: "tool_call" | "tool_result" | "text" | "error" | "done"
+      - data: event-specific payload
+    """
+    is_safe, reason = check_message(user_message)
+    if not is_safe:
+        yield {"type": "error", "data": {"message": reason}}
+        return
+
+    history = load_history(session_id, max_turns=10)
+    history.append(HumanMessage(content=user_message))
+    save_message(session_id, "user", user_message)
+
+    with Timer("agent.stream_agent") as timer:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                agent_executor.invoke,
+                {"messages": history},
+                {"configurable": {"thread_id": session_id}, "recursion_limit": 15},
+            )
+            try:
+                result = future.result(timeout=300)
+                elapsed = timer.elapsed
+                print(f"[metrics] agent.stream_agent session={session_id} duration={elapsed:.2f}s")
+            except concurrent.futures.TimeoutError:
+                print(f"[agent_service] stream_agent timeout for session {session_id}")
+                yield {"type": "error", "data": {"message": "请求超时，请稍后重试"}}
+                return
+            except Exception as e:
+                print(f"[agent_service] stream_agent error for session {session_id}: {type(e).__name__}: {e}")
+                yield {"type": "error", "data": {"message": f"处理失败：{type(e).__name__}"}}
+                return
+
+    from langchain_core.messages import AIMessage as _AIMessage
+
+    reply = "处理完成"
+    for msg in result["messages"]:
+        if isinstance(msg, _AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                event_data = {"tool": tc["name"], "args": tc.get("args", {})}
+                if tc["name"] in SENSITIVE_TOOLS:
+                    event_data["sensitive"] = True
+                    event_data["requires_confirmation"] = True
+                yield {"type": "tool_call", "data": event_data}
+        elif hasattr(msg, "type") and msg.type == "tool":
+            yield {
+                "type": "tool_result",
+                "data": {
+                    "tool": getattr(msg, "name", ""),
+                    "result_preview": (msg.content[:300] + "...") if msg.content and len(msg.content) > 300 else (msg.content or ""),
+                },
+            }
+        elif isinstance(msg, _AIMessage):
+            tc = getattr(msg, "tool_calls", None) or []
+            content = (msg.content or "").strip()
+            if content and not tc:
+                reply = content
+                yield {"type": "text", "data": {"content": content}}
+
+    save_message(session_id, "assistant", reply)
+
+    # Extract resume_id from tool results
+    resume_id = None
+    for msg in result["messages"]:
+        if hasattr(msg, "type") and msg.type == "tool" and hasattr(msg, "name") and msg.name == "generate_resume_tool":
+            try:
+                parsed = json.loads(msg.content or "{}")
+                if parsed.get("ok") and parsed.get("data"):
+                    import re
+                    m = re.search(r"ID:(\d+)", parsed["data"])
+                    if m:
+                        resume_id = int(m.group(1))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    yield {"type": "done", "data": {"response": reply, "resume_id": resume_id}}

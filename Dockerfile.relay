@@ -1,0 +1,5 @@
+FROM python:3.11-slim
+ENV PYTHONUNBUFFERED=1
+RUN pip install --no-cache-dir httpx
+COPY hr-agent/relay_kimi.py /relay_kimi.py
+CMD ["python3", "-u", "/relay_kimi.py"]
