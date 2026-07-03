@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy.orm import Session as DBSession
@@ -1033,8 +1033,21 @@ async def view_resume_html(resume_id: int, template: str = "modern", uid: str = 
         raise HTTPException(status_code=500, detail=f"预览失败: {str(e)}")
 
 
+def _resolve_user_id(token: str = "", authorization: str = ""):
+    """从 query token 或 Authorization header 解析 user_id，兼容 window.open 无 header 场景。"""
+    _token = token or authorization.replace("Bearer ", "")
+    if _token:
+        try:
+            payload = jwt.decode(_token, settings.SECRET_KEY, algorithms=["HS256"])
+            return payload.get("user_id", ""), payload.get("role", "user")
+        except Exception:
+            pass
+    return "", "user"
+
 @router.get("/resumes/{resume_id}/download")
-async def download_resume_pdf(resume_id: int, template: str = "modern", uid: str = Depends(get_token_user_id), role: str = Depends(get_token_role)):
+async def download_resume_pdf(resume_id: int, template: str = "modern", token: str = "",
+    authorization: str = Header("")):
+    uid, role = _resolve_user_id(token, authorization)
     try:
         resume = resume_service.get_resume_by_id(resume_id, user_id=uid if role != "super_admin" else "")
         if not resume:
