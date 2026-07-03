@@ -851,9 +851,24 @@ export default function AgentPage() {
               <Select value={resumePreviewTemplate} onChange={(v) => handleResumeTemplateChange(resumePreviewId!, v)}
                 options={templates.map(t => ({ label: t.name, value: t.key }))} style={{ width: 200 }} />
               <Button type="primary" icon={<DownloadOutlined />}
-                onClick={() => {
-                  const url = getResumeDownloadUrl(resumePreviewId!, resumePreviewTemplate);
-                  window.open(url, '_blank');
+                onClick={async () => {
+                  try {
+                    const detail = await getResume(resumePreviewId!);
+                    const parsed = JSON.parse(detail.content || '{}');
+                    const personal = parsed.personal || {};
+                    const name = personal.name || '';
+                    const phone = personal.phone || '';
+                    const jobTitle = personal.jobTitle || '';
+                    const filename = [name, jobTitle, phone].filter(Boolean).join('_') + '.pdf';
+                    const url = getResumeDownloadUrl(resumePreviewId!, resumePreviewTemplate);
+                    const res = await api.get(url, { responseType: 'blob' });
+                    const blob = new Blob([res.data], { type: 'application/pdf' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = filename;
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                  } catch { message.error('下载失败'); }
                 }}>下载 PDF</Button>
             </div>
             <div dangerouslySetInnerHTML={{ __html: resumePreviewHtml }} style={{ height: '70vh', overflow: 'auto' }} />
